@@ -1,0 +1,1146 @@
+$id: https://lightapi.org/schemas/0.1.0/lightapi.yaml
+$schema: https://json-schema.org/draft/2020-12/schema
+title: LightAPI Description
+description: Describes API capabilities, invocation contracts, examples, fixtures, result semantics, and agent progressive disclosure metadata.
+type: object
+required: [ lightapi, info, operations ]
+unevaluatedProperties: false
+properties:
+  lightapi:
+    type: string
+    title: LightAPIFormatVersion
+    description: The LightAPI specification format version used by this document.
+    const: 0.1.0
+  profile:
+    type: string
+    title: LightAPIProfile
+    description: >-
+      Document profile. catalog is a multi-operation authoring/registry document;
+      endpoint is a single endpoint consumption document; bundle is a small curated
+      set of endpoints for a task, skill, or permission grant.
+    enum: [ catalog, endpoint, bundle ]
+    default: catalog
+  info:
+    $ref: '#/$defs/info'
+    title: Info
+    description: Metadata for humans, agents, portals, and registries.
+  sources:
+    type: object
+    title: Sources
+    description: External source documents or capability catalogs used by operations.
+    additionalProperties:
+      $ref: '#/$defs/source'
+  secrets:
+    type: array
+    title: Secrets
+    description: Secret names required by this document. Values are supplied by the runtime and are never stored inline.
+    uniqueItems: true
+    items:
+      type: string
+      minLength: 1
+  environments:
+    type: object
+    title: Environments
+    description: Named environment configurations for local, dev, test, and live testing.
+    additionalProperties:
+      $ref: '#/$defs/environment'
+  authentications:
+    type: object
+    title: Authentications
+    description: Reusable authentication definitions.
+    additionalProperties:
+      $ref: '#/$defs/authentication'
+  operations:
+    type: object
+    title: Operations
+    description: Protocol-neutral operation catalog.
+    minProperties: 1
+    additionalProperties:
+      $ref: '#/$defs/operation'
+  examples:
+    type: object
+    title: Examples
+    description: Reusable behavior examples.
+    additionalProperties:
+      $ref: '#/$defs/example'
+  fixtures:
+    type: object
+    title: Fixtures
+    description: Reusable data setup and teardown descriptions for live tests.
+    additionalProperties:
+      $ref: '#/$defs/fixture'
+  testSequences:
+    type: object
+    title: TestSequences
+    description: Linear API capability sequences for testing and validation.
+    additionalProperties:
+      $ref: '#/$defs/testSequence'
+  components:
+    $ref: '#/$defs/components'
+    title: Components
+    description: Reusable schemas, request fragments, results, assertions, examples, and fixtures.
+  agent:
+    $ref: '#/$defs/documentAgent'
+    title: Agent
+    description: Document-level metadata for agent skill use and progressive disclosure.
+  context:
+    $ref: '#/$defs/context'
+    title: Context
+    description: >-
+      Shared context reference for endpoint-level documents. Allows a single-operation document
+      to inherit authentications, environments, secrets, and sources from a parent catalog
+      or API-level document without duplication.
+allOf:
+  - if:
+      properties:
+        profile:
+          const: endpoint
+      required: [ profile ]
+    then:
+      properties:
+        operations:
+          maxProperties: 1
+
+$defs:
+  info:
+    type: object
+    title: Info
+    required: [ title, namespace, version ]
+    unevaluatedProperties: false
+    properties:
+      title:
+        type: string
+        minLength: 1
+      namespace:
+        type: string
+        minLength: 1
+        description: Organizational scope for multi-team catalog composition.
+      version:
+        type: string
+        minLength: 1
+        description: Content version of this document. Distinct from the lightapi format version.
+      summary:
+        type: string
+      description:
+        type: string
+      owner:
+        type: string
+      tags:
+        $ref: '#/$defs/stringArray'
+      license:
+        type: string
+      contact:
+        type: object
+        description: Contact information for the API capability pack owner.
+        additionalProperties: true
+        properties:
+          name:
+            type: string
+          url:
+            type: string
+            format: uri
+          email:
+            type: string
+            format: email
+      metadata:
+        type: object
+        additionalProperties: true
+
+  source:
+    type: object
+    title: Source
+    required: [ type, version ]
+    unevaluatedProperties: false
+    properties:
+      type:
+        type: string
+        enum: [ openapi, openrpc, protobuf, grpc-reflection, mcp, http, lightapi ]
+      version:
+        type: string
+        minLength: 1
+        description: Version of the source document or discovered capability set.
+      document:
+        title: SourceDocument
+        description: >
+          Path, URL, or embedded source document. The string form is a path or URL to an external document.
+          The object form is for embedded protocol-specific documents (e.g., inline OpenRPC method descriptions)
+          and is intentionally unstructured.
+        oneOf:
+          - type: string
+          - type: object
+            additionalProperties: true
+      servers:
+        type: object
+        title: SourceServers
+        description: Named per-environment server endpoints.
+        additionalProperties:
+          $ref: '#/$defs/server'
+      transport:
+        type: string
+        title: SourceTransport
+        description: Transport override for protocols such as MCP, JSON-RPC, gRPC, or raw HTTP.
+        enum: [ http, https, grpc, websocket, stdio, sse, streamable-http ]
+      description:
+        type: string
+      metadata:
+        type: object
+        additionalProperties: true
+    allOf:
+      - if:
+          properties:
+            type:
+              const: mcp
+          required: [ type ]
+        then:
+          required: [ transport ]
+
+  server:
+    type: object
+    title: Server
+    required: [ endpoint ]
+    unevaluatedProperties: false
+    properties:
+      endpoint:
+        $ref: '#/$defs/expressionOrString'
+      description:
+        type: string
+      variables:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/expressionOrScalar'
+      tls:
+        type: object
+        additionalProperties: true
+      metadata:
+        type: object
+        additionalProperties: true
+
+  environment:
+    type: object
+    title: Environment
+    unevaluatedProperties: false
+    properties:
+      extends:
+        type: string
+        minLength: 1
+      variables:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/expressionOrScalar'
+      secretsProvider:
+        type: string
+      metadata:
+        type: object
+        additionalProperties: true
+
+  authentication:
+    type: object
+    title: Authentication
+    required: [ type ]
+    unevaluatedProperties: false
+    properties:
+      type:
+        type: string
+        enum: [ none, basic, bearer, apiKey, oauth2, mtls, custom ]
+      authority:
+        $ref: '#/$defs/expressionOrString'
+      grant:
+        type: string
+      client:
+        type: object
+        unevaluatedProperties: false
+        properties:
+          id:
+            $ref: '#/$defs/expressionOrString'
+          secret:
+            $ref: '#/$defs/expressionOrString'
+          assertion:
+            $ref: '#/$defs/expressionOrString'
+          authentication:
+            type: string
+            enum: [ client_secret_basic, client_secret_post, client_secret_jwt, private_key_jwt, none ]
+      username:
+        $ref: '#/$defs/expressionOrString'
+      password:
+        $ref: '#/$defs/expressionOrString'
+      token:
+        $ref: '#/$defs/expressionOrString'
+      name:
+        type: string
+      in:
+        type: string
+        enum: [ header, query, cookie ]
+      value:
+        $ref: '#/$defs/expressionOrString'
+      scopes:
+        $ref: '#/$defs/stringArray'
+      certificate:
+        $ref: '#/$defs/expressionOrString'
+      privateKey:
+        $ref: '#/$defs/expressionOrString'
+      headers:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/expressionOrString'
+      metadata:
+        type: object
+        additionalProperties: true
+
+  operation:
+    title: Operation
+    description: A single API capability that can be invoked by a workflow, test runner, or agent.
+    oneOf:
+      - $ref: '#/$defs/httpOperation'
+      - $ref: '#/$defs/jsonRpcOperation'
+      - $ref: '#/$defs/openRpcOperation'
+      - $ref: '#/$defs/grpcOperation'
+      - $ref: '#/$defs/mcpOperation'
+
+  operationBase:
+    type: object
+    title: OperationBase
+    properties:
+      endpointId:
+        type: string
+        minLength: 1
+        description: >-
+          Globally qualified endpoint identifier in the form {namespace}/{operation-identifier}.
+          Used as the stable portal storage key, cross-document reference, and agent permission grant.
+          Example: light-portal/api.register
+        pattern: "^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$"
+      operationId:
+        type: string
+        minLength: 1
+      summary:
+        type: string
+      description:
+        type: string
+      source:
+        type: string
+        minLength: 1
+      authentication:
+        $ref: '#/$defs/referenceOrInlineAuthentication'
+      safety:
+        $ref: '#/$defs/safety'
+      idempotency:
+        $ref: '#/$defs/idempotency'
+      input:
+        $ref: '#/$defs/input'
+      request:
+        $ref: '#/$defs/request'
+      result:
+        $ref: '#/$defs/result'
+      examples:
+        $ref: '#/$defs/exampleMapOrRefs'
+      visibility:
+        type: string
+        enum: [ public, internal, restricted ]
+        default: internal
+      lifecycle:
+        type: string
+        enum: [ draft, active, deprecated, retired ]
+        default: active
+      tags:
+        $ref: '#/$defs/stringArray'
+      capability:
+        $ref: '#/$defs/capability'
+      agent:
+        $ref: '#/$defs/operationAgent'
+      metadata:
+        type: object
+        additionalProperties: true
+
+  httpOperation:
+    type: object
+    title: HttpOperation
+    required: [ protocol ]
+    unevaluatedProperties: false
+    allOf:
+      - $ref: '#/$defs/operationBase'
+      - properties:
+          protocol:
+            const: http
+          method:
+            type: string
+            enum: [ GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, TRACE ]
+          endpoint:
+            $ref: '#/$defs/expressionOrString'
+          operationId:
+            type: string
+            minLength: 1
+          server:
+            type: string
+          transport:
+            type: string
+            enum: [ http, https, websocket ]
+      - anyOf:
+          - required: [ operationId, source ]
+          - required: [ method, endpoint ]
+
+  jsonRpcOperation:
+    type: object
+    title: JsonRpcOperation
+    required: [ protocol, method ]
+    unevaluatedProperties: false
+    allOf:
+      - $ref: '#/$defs/operationBase'
+      - properties:
+          protocol:
+            const: jsonrpc
+          endpoint:
+            $ref: '#/$defs/expressionOrString'
+          method:
+            type: string
+            minLength: 1
+          transport:
+            type: string
+            enum: [ http, websocket ]
+            default: http
+          notification:
+            type: boolean
+            default: false
+          id:
+            oneOf:
+              - type: string
+              - type: integer
+              - type: "null"
+          errorPolicy:
+            $ref: '#/$defs/errorPolicy'
+      - if:
+          not:
+            required: [ source ]
+        then:
+          required: [ endpoint ]
+
+  openRpcOperation:
+    type: object
+    title: OpenRpcOperation
+    required: [ protocol, source, method ]
+    unevaluatedProperties: false
+    allOf:
+      - $ref: '#/$defs/operationBase'
+      - properties:
+          protocol:
+            const: openrpc
+          method:
+            type: string
+            minLength: 1
+          server:
+            oneOf:
+              - type: string
+              - $ref: '#/$defs/server'
+          transport:
+            type: string
+            enum: [ http, websocket ]
+            default: http
+          notification:
+            type: boolean
+            default: false
+          id:
+            oneOf:
+              - type: string
+              - type: integer
+              - type: "null"
+          errorPolicy:
+            $ref: '#/$defs/errorPolicy'
+
+  grpcOperation:
+    type: object
+    title: GrpcOperation
+    required: [ protocol, service, method ]
+    unevaluatedProperties: false
+    allOf:
+      - $ref: '#/$defs/operationBase'
+      - properties:
+          protocol:
+            const: grpc
+          service:
+            type: string
+            minLength: 1
+          method:
+            type: string
+            minLength: 1
+          endpoint:
+            $ref: '#/$defs/grpcEndpoint'
+          transport:
+            type: string
+            enum: [ grpc, websocket ]
+            default: grpc
+
+  mcpOperation:
+    type: object
+    title: McpOperation
+    required: [ protocol, kind ]
+    unevaluatedProperties: false
+    allOf:
+      - $ref: '#/$defs/operationBase'
+      - properties:
+          protocol:
+            const: mcp
+          server:
+            type: string
+            minLength: 1
+          kind:
+            type: string
+            enum: [ tool, resource, prompt ]
+          name:
+            type: string
+            minLength: 1
+            description: MCP tool or prompt name.
+          uri:
+            type: string
+            minLength: 1
+            description: MCP resource URI.
+          discovery:
+            type: object
+            description: Optional runtime discovery configuration.
+            additionalProperties: true
+        allOf:
+          - if:
+              properties:
+                kind:
+                  const: resource
+              required: [ kind ]
+            then:
+              required: [ uri ]
+            else:
+              required: [ name ]
+
+  input:
+    type: object
+    title: Input
+    description: Protocol-neutral logical interface for an operation or test sequence.
+    unevaluatedProperties: false
+    properties:
+      schema:
+        $ref: '#/$defs/schemaValue'
+      examples:
+        $ref: '#/$defs/exampleMapOrRefs'
+      required:
+        $ref: '#/$defs/stringArray'
+      description:
+        type: string
+
+  request:
+    type: object
+    title: Request
+    description: Wire-level mapping from logical input into protocol-specific request locations.
+    additionalProperties: true
+    properties:
+      headers:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/expressionOrScalar'
+      query:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/expressionOrScalar'
+      path:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/expressionOrScalar'
+      body:
+        $ref: '#/$defs/anyValue'
+      params:
+        $ref: '#/$defs/anyValue'
+      arguments:
+        $ref: '#/$defs/anyValue'
+      message:
+        $ref: '#/$defs/anyValue'
+
+  result:
+    type: object
+    title: Result
+    description: Expected outcomes, behavior examples, and output extraction rules.
+    unevaluatedProperties: false
+    properties:
+      schema:
+        $ref: '#/$defs/schemaValue'
+      success:
+        $ref: '#/$defs/resultCase'
+      failure:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/resultCase'
+      examples:
+        $ref: '#/$defs/exampleMapOrRefs'
+
+  resultCase:
+    type: object
+    title: ResultCase
+    description: Expected status, response assertions, and extracted outputs for a result case.
+    unevaluatedProperties: false
+    properties:
+      status:
+        oneOf:
+          - type: integer
+          - type: string
+      headers:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/assertion'
+      body:
+        $ref: '#/$defs/bodyAssertions'
+      content:
+        $ref: '#/$defs/bodyAssertions'
+      error:
+        $ref: '#/$defs/errorExpectation'
+      outputs:
+        type: object
+        description: JSONPath output extractions using protocol-specific response roots.
+        additionalProperties:
+          type: string
+      rule:
+        $ref: '#/$defs/ruleAssertion'
+      failureShape:
+        $ref: '#/$defs/assertionFailureShape'
+
+  bodyAssertions:
+    type: object
+    title: BodyAssertions
+    unevaluatedProperties: false
+    properties:
+      json:
+        type: object
+        description: JSONPath assertions keyed by response path.
+        additionalProperties:
+          $ref: '#/$defs/assertion'
+      schema:
+        $ref: '#/$defs/schemaValue'
+      rule:
+        $ref: '#/$defs/ruleAssertion'
+
+  assertion:
+    title: Assertion
+    description: Response-oriented assertion compatible with workflow assertTask generation.
+    oneOf:
+      - type: object
+        minProperties: 1
+        unevaluatedProperties: false
+        properties:
+          exists:
+            type: boolean
+          equals: true
+          notEquals: true
+          contains: true
+          matches:
+            type: string
+          gt:
+            type: number
+          gte:
+            type: number
+          lt:
+            type: number
+          lte:
+            type: number
+          hasLength:
+            oneOf:
+              - type: integer
+                minimum: 0
+              - type: object
+                minProperties: 1
+                unevaluatedProperties: false
+                properties:
+                  equals:
+                    type: integer
+                    minimum: 0
+                  gt:
+                    type: integer
+                    minimum: 0
+                  gte:
+                    type: integer
+                    minimum: 0
+                  lt:
+                    type: integer
+                    minimum: 0
+                  lte:
+                    type: integer
+                    minimum: 0
+          schema:
+            $ref: '#/$defs/schemaValue'
+          rule:
+            $ref: '#/$defs/ruleAssertion'
+      - type: string
+
+  ruleAssertion:
+    type: object
+    title: RuleAssertion
+    required: [ ruleId ]
+    unevaluatedProperties: false
+    properties:
+      ruleId:
+        type: string
+        minLength: 1
+      input:
+        $ref: '#/$defs/anyValue'
+
+  errorExpectation:
+    type: object
+    title: ErrorExpectation
+    additionalProperties: true
+    properties:
+      code:
+        $ref: '#/$defs/expressionOrScalar'
+      message:
+        type: string
+      type:
+        type: string
+
+  assertionFailureShape:
+    type: object
+    title: AssertionFailureShape
+    description: Standard assertion failure shape compatible with workflow errors.
+    additionalProperties: true
+    properties:
+      type:
+        type: string
+        default: https://lightapi.org/errors/assertion-failed
+      status:
+        type: integer
+        default: 400
+      title:
+        type: string
+      detail:
+        type: string
+      instance:
+        type: string
+      data:
+        type: object
+        additionalProperties: true
+
+  example:
+    type: object
+    title: Example
+    unevaluatedProperties: false
+    properties:
+      summary:
+        type: string
+      description:
+        type: string
+      input:
+        $ref: '#/$defs/anyValue'
+      request:
+        $ref: '#/$defs/request'
+      result:
+        $ref: '#/$defs/result'
+      output:
+        $ref: '#/$defs/anyValue'
+      error:
+        $ref: '#/$defs/errorExpectation'
+      metadata:
+        type: object
+        additionalProperties: true
+
+  fixture:
+    type: object
+    title: Fixture
+    unevaluatedProperties: false
+    properties:
+      summary:
+        type: string
+      description:
+        type: string
+      environments:
+        $ref: '#/$defs/stringArray'
+      setup:
+        type: array
+        items:
+          $ref: '#/$defs/fixtureAction'
+      teardown:
+        type: array
+        items:
+          $ref: '#/$defs/fixtureAction'
+      metadata:
+        type: object
+        additionalProperties: true
+
+  fixtureAction:
+    title: FixtureAction
+    oneOf:
+      - type: object
+        title: OperationFixtureAction
+        required: [ operation ]
+        unevaluatedProperties: false
+        properties:
+          operation:
+            type: string
+            minLength: 1
+          input:
+            $ref: '#/$defs/anyValue'
+      - type: object
+        title: SqlFixtureAction
+        required: [ sql, privileged ]
+        unevaluatedProperties: false
+        properties:
+          sql:
+            type: string
+            minLength: 1
+          connection:
+            $ref: '#/$defs/expressionOrString'
+          privileged:
+            type: boolean
+            const: true
+      - type: object
+        title: FileFixtureAction
+        required: [ file ]
+        unevaluatedProperties: false
+        properties:
+          file:
+            type: string
+            minLength: 1
+          destination:
+            type: string
+      - type: object
+        title: GeneratedFixtureAction
+        required: [ generate ]
+        unevaluatedProperties: false
+        properties:
+          generate:
+            type: object
+            minProperties: 1
+            additionalProperties: true
+
+  testSequence:
+    type: object
+    title: TestSequence
+    description: Linear test-oriented API sequence. Branching, loops, and human interaction belong in workflow.yaml.
+    required: [ steps ]
+    unevaluatedProperties: false
+    properties:
+      summary:
+        type: string
+      description:
+        type: string
+      inputs:
+        $ref: '#/$defs/input'
+      examples:
+        $ref: '#/$defs/exampleMapOrRefs'
+      fixtures:
+        type: object
+        description: Named fixtures to apply before and after this test sequence. Values are fixture name references, not inline fixture definitions.
+        unevaluatedProperties: false
+        properties:
+          before:
+            $ref: '#/$defs/stringArray'
+            description: Fixture names to apply before the sequence runs (corresponds to fixture setup actions).
+          after:
+            $ref: '#/$defs/stringArray'
+            description: Fixture names to apply after the sequence completes (corresponds to fixture teardown actions).
+      steps:
+        type: array
+        minItems: 1
+        items:
+          $ref: '#/$defs/testStep'
+      metadata:
+        type: object
+        additionalProperties: true
+
+  testStep:
+    type: object
+    title: TestStep
+    required: [ stepId ]
+    unevaluatedProperties: false
+    properties:
+      stepId:
+        type: string
+        minLength: 1
+      operation:
+        type: string
+        minLength: 1
+        description: Local operation name within the same document.
+      endpointId:
+        type: string
+        minLength: 1
+        description: >-
+          Globally qualified endpoint identifier for cross-document references.
+          Use when the step invokes an endpoint defined in a different LightAPI document.
+          Either operation or endpointId must be specified.
+        pattern: "^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$"
+      input:
+        $ref: '#/$defs/anyValue'
+      result:
+        oneOf:
+          - $ref: '#/$defs/result'
+          - type: object
+            required: [ use ]
+            unevaluatedProperties: false
+            properties:
+              use:
+                type: string
+                minLength: 1
+      outputs:
+        type: object
+        additionalProperties:
+          type: string
+    anyOf:
+      - required: [ operation ]
+      - required: [ endpointId ]
+
+  components:
+    type: object
+    title: Components
+    unevaluatedProperties: false
+    properties:
+      parameters:
+        type: object
+        additionalProperties: true
+      headers:
+        type: object
+        additionalProperties: true
+      requestBodies:
+        type: object
+        additionalProperties: true
+      results:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/resultCase'
+      assertions:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/assertion'
+      examples:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/example'
+      fixtures:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/fixture'
+      schemas:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/schemaValue'
+      securitySchemes:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/authentication'
+
+  capability:
+    type: object
+    title: Capability
+    required: [ group, action ]
+    unevaluatedProperties: false
+    properties:
+      group:
+        type: string
+        minLength: 1
+        description: Functional area grouping (e.g., api-management, gateway-config, testing).
+      action:
+        type: string
+        minLength: 1
+        description: The type of action (e.g., create, read, update, delete, list).
+      resource:
+        type: string
+        minLength: 1
+        description: The resource being acted upon (e.g., api, config, snapshot). Optional for utility operations.
+
+  safety:
+    type: object
+    title: Safety
+    unevaluatedProperties: false
+    properties:
+      destructive:
+        type: boolean
+        default: false
+      requiresConfirmation:
+        type: boolean
+        default: false
+      privileged:
+        type: boolean
+        default: false
+      notes:
+        type: string
+
+  idempotency:
+    type: object
+    title: Idempotency
+    unevaluatedProperties: false
+    properties:
+      safeToRetry:
+        type: boolean
+      key:
+        type: string
+      strategy:
+        type: string
+
+  documentAgent:
+    type: object
+    title: DocumentAgent
+    unevaluatedProperties: false
+    properties:
+      purpose:
+        type: string
+      safeByDefault:
+        type: boolean
+      capabilities:
+        type: array
+        items:
+          type: object
+          required: [ area, operations ]
+          unevaluatedProperties: false
+          properties:
+            area:
+              type: string
+            operations:
+              $ref: '#/$defs/stringArray'
+      destructiveOperations:
+        $ref: '#/$defs/stringArray'
+      recommendedSequences:
+        $ref: '#/$defs/stringArray'
+      sensitiveFields:
+        $ref: '#/$defs/stringArray'
+      disclosure:
+        $ref: '#/$defs/disclosure'
+
+  operationAgent:
+    type: object
+    title: OperationAgent
+    unevaluatedProperties: false
+    properties:
+      disclose:
+        type: object
+        unevaluatedProperties: false
+        properties:
+          level:
+            $ref: '#/$defs/disclosureLevel'
+          includeByDefault:
+            type: boolean
+      skill:
+        type: object
+        unevaluatedProperties: false
+        properties:
+          examples:
+            $ref: '#/$defs/stringArray'
+          relatedOperations:
+            $ref: '#/$defs/stringArray'
+          notes:
+            type: string
+
+  disclosure:
+    type: object
+    title: Disclosure
+    unevaluatedProperties: false
+    properties:
+      defaultLevel:
+        $ref: '#/$defs/disclosureLevel'
+      levels:
+        type: object
+        additionalProperties:
+          type: object
+          required: [ include ]
+          unevaluatedProperties: false
+          properties:
+            include:
+              $ref: '#/$defs/stringArray'
+
+  disclosureLevel:
+    type: string
+    enum: [ index, summary, invocation, behavior, full ]
+
+  errorPolicy:
+    type: object
+    title: ErrorPolicy
+    unevaluatedProperties: false
+    properties:
+      throw:
+        type: boolean
+        default: true
+      errorType:
+        type: string
+      includeResponse:
+        type: boolean
+        default: true
+
+  referenceOrInlineAuthentication:
+    title: ReferenceOrInlineAuthentication
+    oneOf:
+      - type: string
+      - $ref: '#/$defs/authentication'
+
+  exampleMapOrRefs:
+    title: ExampleMapOrRefs
+    oneOf:
+      - $ref: '#/$defs/stringArray'
+      - type: object
+        additionalProperties:
+          $ref: '#/$defs/example'
+
+  grpcEndpoint:
+    title: GrpcEndpoint
+    oneOf:
+      - type: string
+      - type: object
+        required: [ host ]
+        unevaluatedProperties: false
+        properties:
+          host:
+            $ref: '#/$defs/expressionOrString'
+          port:
+            oneOf:
+              - type: integer
+                minimum: 1
+                maximum: 65535
+              - $ref: '#/$defs/expressionString'
+          tls:
+            type: object
+            additionalProperties: true
+
+  schemaValue:
+    title: SchemaValue
+    description: Inline JSON Schema or a reference to an external schema.
+    oneOf:
+      - type: object
+        additionalProperties: true
+      - type: string
+
+  context:
+    type: object
+    title: Context
+    description: >-
+      Shared context reference for endpoint-level documents. Allows a single-operation
+      document to inherit authentications, environments, secrets, and sources from a
+      parent catalog or API-level document without duplication.
+    unevaluatedProperties: false
+    properties:
+      catalog:
+        type: string
+        minLength: 1
+        description: >-
+          Name or path of the parent catalog this endpoint belongs to.
+          The runtime resolves shared context (authentications, environments, secrets, sources)
+          from this catalog.
+      inherits:
+        type: array
+        description: >-
+          List of top-level sections to inherit from the parent catalog.
+          Valid values: authentications, environments, secrets, sources.
+        items:
+          type: string
+          enum: [ authentications, environments, secrets, sources ]
+        uniqueItems: true
+
+  expressionString:
+    type: string
+    pattern: "^\\s*\\$\\{.+\\}\\s*$"
+
+  expressionOrString:
+    anyOf:
+      - $ref: '#/$defs/expressionString'
+      - type: string
+
+  expressionOrScalar:
+    anyOf:
+      - $ref: '#/$defs/expressionString'
+      - type: string
+      - type: number
+      - type: integer
+      - type: boolean
+      - type: "null"
+
+  anyValue: true
+
+  stringArray:
+    type: array
+    items:
+      type: string
+      minLength: 1

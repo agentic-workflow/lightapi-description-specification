@@ -1,0 +1,125 @@
+# Endpoint-level document — the canonical consumption form.
+# This is what the portal serves to an agent after decomposing an API-level document.
+# It describes a single endpoint with self-contained context.
+#
+# Compare with jsonrpc-portal-register-api.lightapi.yaml (API-level) where this
+# endpoint is one of four operations sharing auth/env/sources.
+
+lightapi: 0.1.0
+profile: endpoint
+
+info:
+  title: Register API Endpoint
+  namespace: light-portal
+  version: 0.1.0
+  summary: Register a new API in the portal catalog.
+
+# Shared context inherited from the parent catalog.
+# The runtime resolves authentications, environments, and secrets from light-portal.
+context:
+  catalog: light-portal
+  inherits:
+    - authentications
+    - environments
+    - secrets
+
+operations:
+  registerApi:
+    endpointId: light-portal/api.register
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: api.register
+    summary: Register a new API in the portal catalog.
+    authentication: portalCommandToken
+    visibility: public
+    lifecycle: active
+    tags: [ api-admin, onboarding ]
+    capability:
+      group: api-management
+      action: create
+      resource: api
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: false
+    input:
+      schema:
+        type: object
+        required: [ name, category ]
+        properties:
+          name:
+            type: string
+            description: Display name for the API.
+          category:
+            type: string
+            description: API category (e.g., rest, graphql, grpc).
+          description:
+            type: string
+          tags:
+            type: array
+            items:
+              type: string
+    request:
+      params:
+        name: ${input.name}
+        category: ${input.category}
+        description: ${input.description}
+        tags: ${input.tags}
+    result:
+      success:
+        body:
+          json:
+            $.result.apiId:
+              exists: true
+            $.result.name:
+              equals: ${input.name}
+        outputs:
+          apiId: $.result.apiId
+      failure:
+        duplicateName:
+          error:
+            code: -32001
+            message: API name already exists
+        invalidCategory:
+          error:
+            code: -32602
+    errorPolicy:
+      throw: true
+      errorType: https://lightapi.org/errors/portal/api-register-failed
+      includeResponse: true
+    examples:
+      happyPath:
+        summary: Successfully register the Petstore API.
+        input:
+          name: Petstore
+          category: rest
+          description: Classic pet management API.
+          tags: [ pets, demo ]
+        result:
+          success:
+            body:
+              json:
+                $.result.apiId:
+                  exists: true
+                $.result.name:
+                  equals: Petstore
+      duplicateName:
+        summary: Registration fails because API name is already taken.
+        input:
+          name: Petstore
+          category: rest
+        result:
+          failure:
+            duplicateName:
+              error:
+                code: -32001
+    agent:
+      disclose:
+        level: summary
+        includeByDefault: true
+      skill:
+        examples:
+          - happyPath
+        relatedOperations:
+          - light-portal/api.createVersion
+          - light-portal/api.delete

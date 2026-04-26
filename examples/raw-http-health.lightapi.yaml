@@ -1,0 +1,132 @@
+# Raw HTTP health check — no OpenAPI, no source document.
+# Validates the simplest possible LightAPI document.
+
+lightapi: 0.1.0
+
+info:
+  title: Gateway Health Check
+  namespace: light-gateway
+  version: 1.0.0
+  summary: Health and readiness probes for the light-gateway service.
+  contact:
+    name: Steve Hu
+    email: steve.hu@lightapi.net
+
+environments:
+  local:
+    variables:
+      gatewayBaseUrl: http://localhost:8080
+  dev:
+    extends: local
+    variables:
+      gatewayBaseUrl: https://dev.gateway.lightapi.net
+
+operations:
+  healthCheck:
+    protocol: http
+    method: GET
+    endpoint: ${env.gatewayBaseUrl}/health
+    summary: Basic health check endpoint.
+    visibility: public
+    lifecycle: active
+    tags: [ health, monitoring ]
+    capability:
+      group: observability
+      action: read
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    result:
+      success:
+        status: 200
+        body:
+          json:
+            $.status:
+              equals: UP
+      failure:
+        serviceDown:
+          status: 503
+          body:
+            json:
+              $.status:
+                equals: DOWN
+    examples:
+      healthy:
+        summary: Gateway is healthy and accepting traffic.
+        result:
+          success:
+            status: 200
+            body:
+              json:
+                $.status:
+                  equals: UP
+      unhealthy:
+        summary: Gateway is degraded or shutting down.
+        result:
+          failure:
+            serviceDown:
+              status: 503
+
+  readinessCheck:
+    protocol: http
+    method: GET
+    endpoint: ${env.gatewayBaseUrl}/ready
+    summary: Readiness probe — returns 200 when all upstream dependencies are connected.
+    visibility: public
+    lifecycle: active
+    tags: [ health, monitoring, kubernetes ]
+    capability:
+      group: observability
+      action: read
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    result:
+      success:
+        status: 200
+        body:
+          json:
+            $.ready:
+              equals: true
+            $.checks:
+              hasLength:
+                gte: 1
+
+  serverInfo:
+    protocol: http
+    method: GET
+    endpoint: ${env.gatewayBaseUrl}/server/info
+    summary: Returns gateway version, build info, and loaded modules.
+    visibility: internal
+    lifecycle: active
+    tags: [ monitoring, debug ]
+    capability:
+      group: observability
+      action: read
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    result:
+      success:
+        status: 200
+        body:
+          json:
+            $.version:
+              exists: true
+            $.modules:
+              hasLength:
+                gte: 1
+        outputs:
+          version: $.body.version
+
+agent:
+  purpose: Monitor health and readiness of the light-gateway service.
+  safeByDefault: true
+  capabilities:
+    - area: observability
+      operations: [ healthCheck, readinessCheck, serverInfo ]
+  disclosure:
+    defaultLevel: summary

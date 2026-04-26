@@ -1,0 +1,452 @@
+# MCP tool/resource/prompt operations for a Petstore AI gateway.
+# Tests all three MCP kinds, static descriptions alongside runtime discovery,
+# behavior examples with happy/error paths, and source-level transport.
+
+lightapi: 0.1.0
+
+info:
+  title: Petstore MCP Tools
+  namespace: petstore-gateway
+  version: 1.0.0
+  summary: MCP tool, resource, and prompt operations exposed by the AI gateway for the Petstore API.
+  tags: [ mcp, petstore, ai-gateway ]
+  contact:
+    name: Steve Hu
+    email: steve.hu@lightapi.net
+
+sources:
+  gatewayMcp:
+    type: mcp
+    version: 1.0.0
+    document: ./mcp/petstore-capabilities.yaml
+    transport: streamable-http
+    servers:
+      local:
+        endpoint: http://localhost:8080/mcp
+      dev:
+        endpoint: https://dev.gateway.lightapi.net/mcp
+
+environments:
+  local:
+    variables:
+      gatewayBaseUrl: http://localhost:8080
+  dev:
+    extends: local
+    variables:
+      gatewayBaseUrl: https://dev.gateway.lightapi.net
+
+operations:
+  # ─── Tools ────────────────────────────────────────────────────────
+  getPet:
+    protocol: mcp
+    server: gatewayMcp
+    kind: tool
+    name: petstore_getPet
+    summary: Retrieve a pet by ID.
+    visibility: public
+    lifecycle: active
+    tags: [ pets, read ]
+    capability:
+      group: pet-management
+      action: read
+      resource: pet
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    input:
+      schema:
+        type: object
+        required: [ petId ]
+        properties:
+          petId:
+            type: integer
+            description: The unique identifier of the pet.
+    result:
+      schema:
+        type: object
+        properties:
+          id:
+            type: integer
+          name:
+            type: string
+          status:
+            type: string
+            enum: [ available, pending, sold ]
+          tags:
+            type: array
+            items:
+              type: string
+      success:
+        content:
+          json:
+            $.id:
+              exists: true
+            $.name:
+              exists: true
+        outputs:
+          petName: $.content[0].text.name
+          petStatus: $.content[0].text.status
+    examples:
+      found:
+        summary: Pet exists and is returned.
+        input:
+          petId: 1001
+        result:
+          success:
+            content:
+              json:
+                $.id:
+                  equals: 1001
+                $.name:
+                  equals: Fluffy
+                $.status:
+                  equals: available
+      notFound:
+        summary: Pet does not exist.
+        input:
+          petId: 999999
+        error:
+          code: PET_NOT_FOUND
+          message: No pet found with ID 999999
+    agent:
+      disclose:
+        level: summary
+        includeByDefault: true
+      skill:
+        examples:
+          - found
+          - notFound
+        relatedOperations:
+          - listPets
+          - addPet
+
+  listPets:
+    protocol: mcp
+    server: gatewayMcp
+    kind: tool
+    name: petstore_listPets
+    summary: List pets with optional status filter.
+    visibility: public
+    lifecycle: active
+    tags: [ pets, read ]
+    capability:
+      group: pet-management
+      action: list
+      resource: pet
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    input:
+      schema:
+        type: object
+        properties:
+          status:
+            type: string
+            enum: [ available, pending, sold ]
+          limit:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+    result:
+      success:
+        content:
+          json:
+            $:
+              hasLength:
+                gte: 0
+    examples:
+      allAvailable:
+        summary: List available pets.
+        input:
+          status: available
+          limit: 10
+        result:
+          success:
+            content:
+              json:
+                $:
+                  hasLength:
+                    gte: 1
+
+  addPet:
+    protocol: mcp
+    server: gatewayMcp
+    kind: tool
+    name: petstore_addPet
+    summary: Add a new pet to the store.
+    visibility: public
+    lifecycle: active
+    tags: [ pets, write ]
+    capability:
+      group: pet-management
+      action: create
+      resource: pet
+    safety:
+      destructive: false
+      requiresConfirmation: false
+    idempotency:
+      safeToRetry: false
+    input:
+      schema:
+        type: object
+        required: [ name ]
+        properties:
+          name:
+            type: string
+          status:
+            type: string
+            enum: [ available, pending, sold ]
+            default: available
+          tags:
+            type: array
+            items:
+              type: string
+    result:
+      success:
+        content:
+          json:
+            $.id:
+              exists: true
+            $.name:
+              equals: ${input.name}
+        outputs:
+          newPetId: $.content[0].text.id
+    examples:
+      happyPath:
+        summary: Successfully add a new pet.
+        input:
+          name: Rex
+          status: available
+          tags: [ dog, friendly ]
+        result:
+          success:
+            content:
+              json:
+                $.id:
+                  exists: true
+                $.name:
+                  equals: Rex
+
+  deletePet:
+    protocol: mcp
+    server: gatewayMcp
+    kind: tool
+    name: petstore_deletePet
+    summary: Delete a pet by ID. This is destructive.
+    visibility: internal
+    lifecycle: active
+    tags: [ pets, write ]
+    capability:
+      group: pet-management
+      action: delete
+      resource: pet
+    safety:
+      destructive: true
+      requiresConfirmation: true
+    idempotency:
+      safeToRetry: false
+    input:
+      schema:
+        type: object
+        required: [ petId ]
+        properties:
+          petId:
+            type: integer
+    result:
+      success:
+        content:
+          json:
+            $.deleted:
+              equals: true
+
+  # ─── Resources ────────────────────────────────────────────────────
+  gatewayConfig:
+    protocol: mcp
+    server: gatewayMcp
+    kind: resource
+    uri: config://gateway/current
+    summary: Current gateway routing and MCP configuration.
+    visibility: internal
+    lifecycle: active
+    tags: [ config, gateway ]
+    capability:
+      group: gateway-admin
+      action: read
+      resource: config
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    result:
+      success:
+        content:
+          json:
+            $.mcpRouter:
+              exists: true
+            $.routes:
+              hasLength:
+                gte: 1
+
+  petstoreSpec:
+    protocol: mcp
+    server: gatewayMcp
+    kind: resource
+    uri: spec://petstore/openapi
+    summary: The OpenAPI specification document for the Petstore API.
+    visibility: public
+    lifecycle: active
+    tags: [ spec, petstore ]
+    capability:
+      group: pet-management
+      action: read
+      resource: spec
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    result:
+      success:
+        content:
+          json:
+            $.openapi:
+              exists: true
+            $.info.title:
+              contains: Petstore
+
+  # ─── Prompts ──────────────────────────────────────────────────────
+  generateApiTest:
+    protocol: mcp
+    server: gatewayMcp
+    kind: prompt
+    name: generate_api_test
+    summary: Generate a test plan for a given API operation.
+    visibility: public
+    lifecycle: active
+    tags: [ testing, ai ]
+    capability:
+      group: testing
+      action: create
+    input:
+      schema:
+        type: object
+        required: [ apiId ]
+        properties:
+          apiId:
+            type: string
+          operationId:
+            type: string
+    request:
+      arguments:
+        apiId: ${input.apiId}
+        operationId: ${input.operationId}
+
+fixtures:
+  petstoreTestData:
+    summary: Seed the Petstore with test pets for integration testing.
+    environments: [ local, dev ]
+    setup:
+      - operation: addPet
+        input:
+          name: Fluffy
+          status: available
+          tags: [ cat, test ]
+      - operation: addPet
+        input:
+          name: Rex
+          status: available
+          tags: [ dog, test ]
+    teardown:
+      - operation: deletePet
+        input:
+          petId: ${fixtures.petstoreTestData.setup[0].outputs.newPetId}
+      - operation: deletePet
+        input:
+          petId: ${fixtures.petstoreTestData.setup[1].outputs.newPetId}
+
+testSequences:
+  petCrudSequence:
+    summary: Create, read, and delete a pet — full CRUD lifecycle.
+    fixtures:
+      before: []
+      after: []
+    inputs:
+      schema:
+        type: object
+        required: [ petName ]
+        properties:
+          petName:
+            type: string
+    examples:
+      localRex:
+        input:
+          petName: Rex
+    steps:
+      - stepId: create
+        operation: addPet
+        input:
+          name: ${inputs.petName}
+          status: available
+        result:
+          success:
+            content:
+              json:
+                $.id:
+                  exists: true
+                $.name:
+                  equals: ${inputs.petName}
+        outputs:
+          petId: $.content[0].text.id
+
+      - stepId: read
+        operation: getPet
+        input:
+          petId: ${steps.create.outputs.petId}
+        result:
+          success:
+            content:
+              json:
+                $.name:
+                  equals: ${inputs.petName}
+
+      - stepId: cleanup
+        operation: deletePet
+        input:
+          petId: ${steps.create.outputs.petId}
+        result:
+          success:
+            content:
+              json:
+                $.deleted:
+                  equals: true
+
+agent:
+  purpose: Manage pets and gateway configuration through MCP tools.
+  safeByDefault: true
+  capabilities:
+    - area: pet-management
+      operations: [ getPet, listPets, addPet, deletePet ]
+    - area: gateway-admin
+      operations: [ gatewayConfig, petstoreSpec ]
+    - area: testing
+      operations: [ generateApiTest ]
+  destructiveOperations:
+    - deletePet
+  recommendedSequences:
+    - petCrudSequence
+  sensitiveFields: []
+  disclosure:
+    defaultLevel: summary
+    levels:
+      index:
+        include: [ operationId, summary, tags, capability, visibility, lifecycle ]
+      summary:
+        include: [ input, safety, idempotency, examples ]
+      invocation:
+        include: [ protocol, server, kind, name, uri, request ]
+      behavior:
+        include: [ result, examples, agent.skill ]
+      full:
+        include: [ fixtures, testSequences ]

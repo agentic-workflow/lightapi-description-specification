@@ -1,0 +1,367 @@
+# JSON-RPC portal API registration — source-backed and raw endpoint forms.
+# Tests input/request separation, result assertions, output extraction,
+# examples with happy/failure paths, and progressive disclosure fields.
+
+lightapi: 0.1.0
+
+info:
+  title: Portal API Registration
+  namespace: light-portal
+  version: 0.1.0
+  summary: Register and manage APIs in the light-portal catalog.
+  owner: Platform Team
+  tags: [ portal, api-management, onboarding ]
+  contact:
+    name: Steve Hu
+    email: steve.hu@lightapi.net
+
+sources:
+  portalRpc:
+    type: openrpc
+    version: 0.1.0
+    document: ./openrpc/portal-command.openrpc.json
+    servers:
+      local:
+        endpoint: http://localhost:6881/rpc
+      dev:
+        endpoint: https://dev.portal.lightapi.net/rpc
+
+secrets:
+  - portalClientId
+  - portalClientSecret
+
+environments:
+  local:
+    variables:
+      portalBaseUrl: http://localhost:6881
+  dev:
+    extends: local
+    variables:
+      portalBaseUrl: https://dev.portal.lightapi.net
+
+authentications:
+  portalCommandToken:
+    type: oauth2
+    authority: ${env.portalBaseUrl}
+    grant: client_credentials
+    client:
+      id: ${secrets.portalClientId}
+      secret: ${secrets.portalClientSecret}
+
+operations:
+  registerApi:
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: api.register
+    summary: Register a new API in the portal catalog.
+    authentication: portalCommandToken
+    visibility: public
+    lifecycle: active
+    tags: [ api-admin, onboarding ]
+    capability:
+      group: api-management
+      action: create
+      resource: api
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: false
+    input:
+      schema:
+        type: object
+        required: [ name, category ]
+        properties:
+          name:
+            type: string
+            description: Display name for the API.
+          category:
+            type: string
+            description: API category (e.g., rest, graphql, grpc).
+          description:
+            type: string
+            description: Optional human-readable description.
+          tags:
+            type: array
+            items:
+              type: string
+    request:
+      params:
+        name: ${input.name}
+        category: ${input.category}
+        description: ${input.description}
+        tags: ${input.tags}
+    result:
+      success:
+        body:
+          json:
+            $.result.apiId:
+              exists: true
+            $.result.name:
+              equals: ${input.name}
+        outputs:
+          apiId: $.result.apiId
+      failure:
+        duplicateName:
+          error:
+            code: -32001
+            message: API name already exists
+          body:
+            json:
+              $.error.data.existingApiId:
+                exists: true
+        invalidCategory:
+          error:
+            code: -32602
+    errorPolicy:
+      throw: true
+      errorType: https://lightapi.org/errors/portal/api-register-failed
+      includeResponse: true
+    examples:
+      happyPath:
+        summary: Successfully register the Petstore API.
+        input:
+          name: Petstore
+          category: rest
+          description: Classic pet management API.
+          tags: [ pets, demo ]
+        result:
+          success:
+            body:
+              json:
+                $.result.apiId:
+                  exists: true
+                $.result.name:
+                  equals: Petstore
+      duplicateName:
+        summary: Registration fails because API name is already taken.
+        input:
+          name: Petstore
+          category: rest
+        result:
+          failure:
+            duplicateName:
+              error:
+                code: -32001
+    agent:
+      disclose:
+        level: summary
+        includeByDefault: true
+      skill:
+        examples:
+          - happyPath
+        relatedOperations:
+          - createApiVersion
+          - deleteApi
+
+  getApi:
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: api.get
+    summary: Retrieve an API by its ID.
+    authentication: portalCommandToken
+    visibility: public
+    lifecycle: active
+    tags: [ api-admin ]
+    capability:
+      group: api-management
+      action: read
+      resource: api
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    input:
+      schema:
+        type: object
+        required: [ apiId ]
+        properties:
+          apiId:
+            type: string
+    request:
+      params:
+        apiId: ${input.apiId}
+    result:
+      success:
+        body:
+          json:
+            $.result.apiId:
+              equals: ${input.apiId}
+            $.result.name:
+              exists: true
+        outputs:
+          name: $.result.name
+          category: $.result.category
+      failure:
+        notFound:
+          error:
+            code: -32004
+
+  createApiVersion:
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: api.createVersion
+    summary: Create a new version for an existing API.
+    authentication: portalCommandToken
+    visibility: public
+    lifecycle: active
+    tags: [ api-admin, onboarding ]
+    capability:
+      group: api-management
+      action: create
+      resource: api-version
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: false
+    input:
+      schema:
+        type: object
+        required: [ apiId, version ]
+        properties:
+          apiId:
+            type: string
+          version:
+            type: string
+            description: Semantic version (e.g., 1.0.0).
+          specUrl:
+            type: string
+            description: URL to the API specification document.
+    request:
+      params:
+        apiId: ${input.apiId}
+        version: ${input.version}
+        specUrl: ${input.specUrl}
+    result:
+      success:
+        body:
+          json:
+            $.result.versionId:
+              exists: true
+        outputs:
+          versionId: $.result.versionId
+    agent:
+      disclose:
+        level: summary
+        includeByDefault: true
+      skill:
+        relatedOperations:
+          - registerApi
+
+  deleteApi:
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: api.delete
+    summary: Delete an API and all its versions.
+    authentication: portalCommandToken
+    visibility: internal
+    lifecycle: active
+    tags: [ api-admin ]
+    capability:
+      group: api-management
+      action: delete
+      resource: api
+    safety:
+      destructive: true
+      requiresConfirmation: true
+    idempotency:
+      safeToRetry: false
+    input:
+      schema:
+        type: object
+        required: [ apiId ]
+        properties:
+          apiId:
+            type: string
+    request:
+      params:
+        apiId: ${input.apiId}
+    result:
+      success:
+        body:
+          json:
+            $.result.deleted:
+              equals: true
+
+agent:
+  purpose: Register, version, and manage APIs in the light-portal catalog.
+  safeByDefault: false
+  capabilities:
+    - area: api-management
+      operations: [ registerApi, getApi, createApiVersion, deleteApi ]
+  destructiveOperations:
+    - deleteApi
+  recommendedSequences:
+    - registerAndVersion
+  sensitiveFields:
+    - portalClientSecret
+  disclosure:
+    defaultLevel: summary
+    levels:
+      index:
+        include: [ operationId, summary, tags, capability, visibility, lifecycle ]
+      summary:
+        include: [ input, authentication, safety, idempotency, examples ]
+      invocation:
+        include: [ protocol, endpoint, request, errorPolicy ]
+      behavior:
+        include: [ result, examples, agent.skill ]
+      full:
+        include: [ fixtures, testSequences ]
+
+testSequences:
+  registerAndVersion:
+    summary: Register an API and create its first version.
+    inputs:
+      schema:
+        type: object
+        required: [ apiName, category, version ]
+        properties:
+          apiName:
+            type: string
+          category:
+            type: string
+          version:
+            type: string
+    examples:
+      localPetstore:
+        input:
+          apiName: Petstore
+          category: rest
+          version: 1.0.0
+    steps:
+      - stepId: register
+        operation: registerApi
+        input:
+          name: ${inputs.apiName}
+          category: ${inputs.category}
+        result:
+          success:
+            body:
+              json:
+                $.result.apiId:
+                  exists: true
+        outputs:
+          apiId: $.result.apiId
+
+      - stepId: version
+        operation: createApiVersion
+        input:
+          apiId: ${steps.register.outputs.apiId}
+          version: ${inputs.version}
+        result:
+          success:
+            body:
+              json:
+                $.result.versionId:
+                  exists: true
+
+      - stepId: verify
+        operation: getApi
+        input:
+          apiId: ${steps.register.outputs.apiId}
+        result:
+          success:
+            body:
+              json:
+                $.result.name:
+                  equals: ${inputs.apiName}

@@ -1,0 +1,550 @@
+# Portal onboarding sequence — the canonical multi-step example.
+# Exercises cross-operation output chaining, multiple protocols (JSON-RPC + MCP),
+# fixtures, test sequences, and the full workflow handoff story.
+
+lightapi: 0.1.0
+
+info:
+  title: Portal API Onboarding
+  namespace: light-portal
+  version: 0.1.0
+  summary: >
+    End-to-end onboarding of a new API into light-portal and the AI gateway.
+    Covers API registration, version creation, spec upload, gateway configuration,
+    and MCP tool verification.
+  owner: Platform Team
+  tags: [ portal, onboarding, ai-gateway ]
+  contact:
+    name: Steve Hu
+    email: steve.hu@lightapi.net
+
+sources:
+  portalRpc:
+    type: openrpc
+    version: 0.1.0
+    document: ./openrpc/portal-command.openrpc.json
+    servers:
+      local:
+        endpoint: http://localhost:6881/rpc
+      dev:
+        endpoint: https://dev.portal.lightapi.net/rpc
+  gatewayMcp:
+    type: mcp
+    version: 1.0.0
+    document: ./mcp/gateway-capabilities.yaml
+    transport: streamable-http
+    servers:
+      local:
+        endpoint: http://localhost:8080/mcp
+      dev:
+        endpoint: https://dev.gateway.lightapi.net/mcp
+
+secrets:
+  - portalClientId
+  - portalClientSecret
+
+environments:
+  local:
+    variables:
+      portalBaseUrl: http://localhost:6881
+      gatewayBaseUrl: http://localhost:8080
+  dev:
+    extends: local
+    variables:
+      portalBaseUrl: https://dev.portal.lightapi.net
+      gatewayBaseUrl: https://dev.gateway.lightapi.net
+
+authentications:
+  portalCommandToken:
+    type: oauth2
+    authority: ${env.portalBaseUrl}
+    grant: client_credentials
+    client:
+      id: ${secrets.portalClientId}
+      secret: ${secrets.portalClientSecret}
+
+operations:
+  # ─── Portal JSON-RPC operations ──────────────────────────────────
+  registerApi:
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: api.register
+    summary: Register a new API in the portal catalog.
+    authentication: portalCommandToken
+    visibility: public
+    lifecycle: active
+    tags: [ onboarding, api-admin ]
+    capability:
+      group: api-management
+      action: create
+      resource: api
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: false
+    input:
+      schema:
+        type: object
+        required: [ name, category ]
+        properties:
+          name:
+            type: string
+          category:
+            type: string
+    request:
+      params:
+        name: ${input.name}
+        category: ${input.category}
+    result:
+      success:
+        body:
+          json:
+            $.result.apiId:
+              exists: true
+        outputs:
+          apiId: $.result.apiId
+
+  createApiVersion:
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: api.createVersion
+    summary: Create a version entry for an API.
+    authentication: portalCommandToken
+    visibility: public
+    lifecycle: active
+    tags: [ onboarding, api-admin ]
+    capability:
+      group: api-management
+      action: create
+      resource: api-version
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: false
+    input:
+      schema:
+        type: object
+        required: [ apiId, version ]
+        properties:
+          apiId:
+            type: string
+          version:
+            type: string
+    request:
+      params:
+        apiId: ${input.apiId}
+        version: ${input.version}
+    result:
+      success:
+        body:
+          json:
+            $.result.versionId:
+              exists: true
+        outputs:
+          versionId: $.result.versionId
+
+  uploadSpec:
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: api.uploadSpec
+    summary: Upload an OpenAPI spec document for an API version.
+    authentication: portalCommandToken
+    visibility: public
+    lifecycle: active
+    tags: [ onboarding ]
+    capability:
+      group: api-management
+      action: update
+      resource: api-spec
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    input:
+      schema:
+        type: object
+        required: [ versionId, specContent ]
+        properties:
+          versionId:
+            type: string
+          specContent:
+            type: string
+            description: The OpenAPI spec as a YAML or JSON string.
+    request:
+      params:
+        versionId: ${input.versionId}
+        specContent: ${input.specContent}
+    result:
+      success:
+        body:
+          json:
+            $.result.uploaded:
+              equals: true
+
+  createGatewayRoute:
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: gateway.createRoute
+    summary: Create a gateway route for the API so it can be invoked through the gateway.
+    authentication: portalCommandToken
+    visibility: public
+    lifecycle: active
+    tags: [ onboarding, gateway ]
+    capability:
+      group: gateway-config
+      action: create
+      resource: route
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: false
+    input:
+      schema:
+        type: object
+        required: [ apiId, versionId, basePath ]
+        properties:
+          apiId:
+            type: string
+          versionId:
+            type: string
+          basePath:
+            type: string
+            description: The URL path prefix for the gateway route (e.g., /petstore).
+    request:
+      params:
+        apiId: ${input.apiId}
+        versionId: ${input.versionId}
+        basePath: ${input.basePath}
+    result:
+      success:
+        body:
+          json:
+            $.result.routeId:
+              exists: true
+        outputs:
+          routeId: $.result.routeId
+
+  reloadGateway:
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: gateway.reload
+    summary: Trigger the gateway to reload its routing configuration.
+    authentication: portalCommandToken
+    visibility: internal
+    lifecycle: active
+    tags: [ gateway ]
+    capability:
+      group: gateway-config
+      action: update
+      resource: config
+    safety:
+      destructive: false
+      requiresConfirmation: true
+    idempotency:
+      safeToRetry: true
+    result:
+      success:
+        body:
+          json:
+            $.result.status:
+              equals: OK
+
+  deleteApi:
+    protocol: jsonrpc
+    endpoint: ${env.portalBaseUrl}/rpc
+    method: api.delete
+    summary: Delete an API, its versions, routes, and all related metadata.
+    authentication: portalCommandToken
+    visibility: internal
+    lifecycle: active
+    tags: [ api-admin, cleanup ]
+    capability:
+      group: api-management
+      action: delete
+      resource: api
+    safety:
+      destructive: true
+      requiresConfirmation: true
+    idempotency:
+      safeToRetry: false
+    input:
+      schema:
+        type: object
+        required: [ apiId ]
+        properties:
+          apiId:
+            type: string
+    request:
+      params:
+        apiId: ${input.apiId}
+    result:
+      success:
+        body:
+          json:
+            $.result.deleted:
+              equals: true
+
+  # ─── MCP verification operations ─────────────────────────────────
+  verifyMcpTool:
+    protocol: mcp
+    server: gatewayMcp
+    kind: tool
+    name: petstore_getPet
+    summary: Verify the Petstore MCP tool is registered and functional after onboarding.
+    visibility: internal
+    lifecycle: active
+    tags: [ onboarding, verification ]
+    capability:
+      group: testing
+      action: read
+      resource: mcp-tool
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    input:
+      schema:
+        type: object
+        required: [ petId ]
+        properties:
+          petId:
+            type: integer
+    result:
+      success:
+        content:
+          json:
+            $.id:
+              exists: true
+
+  verifyGatewayRoute:
+    protocol: mcp
+    server: gatewayMcp
+    kind: resource
+    uri: config://gateway/current
+    summary: Verify the gateway config includes the new route.
+    visibility: internal
+    lifecycle: active
+    tags: [ onboarding, verification ]
+    capability:
+      group: testing
+      action: read
+      resource: gateway-config
+    safety:
+      destructive: false
+    idempotency:
+      safeToRetry: true
+    result:
+      success:
+        content:
+          json:
+            $.routes:
+              hasLength:
+                gte: 1
+
+examples:
+  petstoreOnboardingInput:
+    summary: Standard Petstore onboarding input.
+    input:
+      apiName: Petstore
+      category: rest
+      version: 1.0.0
+      basePath: /petstore
+
+fixtures:
+  cleanPetstore:
+    summary: Remove any existing Petstore API registration before onboarding.
+    environments: [ local ]
+    setup:
+      - operation: deleteApi
+        input:
+          apiId: ${env.petstoreApiId}
+    teardown:
+      - operation: deleteApi
+        input:
+          apiId: ${steps.register.outputs.apiId}
+
+testSequences:
+  fullOnboarding:
+    summary: >
+      End-to-end API onboarding: register → version → upload spec → create route → reload
+      gateway → verify MCP tool → verify gateway route.
+    fixtures:
+      before: [ cleanPetstore ]
+      after: [ cleanPetstore ]
+    inputs:
+      schema:
+        type: object
+        required: [ apiName, category, version, basePath ]
+        properties:
+          apiName:
+            type: string
+          category:
+            type: string
+          version:
+            type: string
+          basePath:
+            type: string
+          specContent:
+            type: string
+    examples:
+      localPetstore:
+        input:
+          apiName: Petstore
+          category: rest
+          version: 1.0.0
+          basePath: /petstore
+          specContent: |
+            openapi: 3.0.3
+            info:
+              title: Petstore
+              version: 1.0.0
+            paths:
+              /pets/{petId}:
+                get:
+                  operationId: getPet
+    steps:
+      - stepId: register
+        operation: registerApi
+        input:
+          name: ${inputs.apiName}
+          category: ${inputs.category}
+        result:
+          success:
+            body:
+              json:
+                $.result.apiId:
+                  exists: true
+        outputs:
+          apiId: $.result.apiId
+
+      - stepId: version
+        operation: createApiVersion
+        input:
+          apiId: ${steps.register.outputs.apiId}
+          version: ${inputs.version}
+        result:
+          success:
+            body:
+              json:
+                $.result.versionId:
+                  exists: true
+        outputs:
+          versionId: $.result.versionId
+
+      - stepId: uploadSpec
+        operation: uploadSpec
+        input:
+          versionId: ${steps.version.outputs.versionId}
+          specContent: ${inputs.specContent}
+        result:
+          success:
+            body:
+              json:
+                $.result.uploaded:
+                  equals: true
+
+      - stepId: createRoute
+        operation: createGatewayRoute
+        input:
+          apiId: ${steps.register.outputs.apiId}
+          versionId: ${steps.version.outputs.versionId}
+          basePath: ${inputs.basePath}
+        result:
+          success:
+            body:
+              json:
+                $.result.routeId:
+                  exists: true
+        outputs:
+          routeId: $.result.routeId
+
+      - stepId: reload
+        operation: reloadGateway
+        result:
+          success:
+            body:
+              json:
+                $.result.status:
+                  equals: OK
+
+      - stepId: verifyTool
+        operation: verifyMcpTool
+        input:
+          petId: 1
+        result:
+          success:
+            content:
+              json:
+                $.id:
+                  exists: true
+
+      - stepId: verifyRoute
+        operation: verifyGatewayRoute
+        result:
+          success:
+            content:
+              json:
+                $.routes:
+                  hasLength:
+                    gte: 1
+
+# ─── Workflow Handoff ────────────────────────────────────────────────
+# This test sequence can be consumed by the agentic workflow:
+#
+# use:
+#   catalogs:
+#     portal:
+#       endpoint: ./portal-onboarding-sequence.lightapi.yaml
+#       version: 0.1.0
+#       environment: local
+#
+# do:
+#   - register:
+#       call: jsonrpc
+#       with:
+#         method: api.register
+#         params:
+#           name: ${ .apiName }
+#           category: ${ .category }
+#       export:
+#         as:
+#           apiId: ${ .result.apiId }
+#
+#   - verify-register:
+#       assert:
+#         value: ${ .register.output }
+#         json:
+#           $.result.apiId:
+#             exists: true
+#
+# The converter maps each testSequence step into a call+assert pair.
+
+agent:
+  purpose: Onboard APIs into light-portal and the AI gateway, then verify end-to-end connectivity.
+  safeByDefault: false
+  capabilities:
+    - area: api-management
+      operations: [ registerApi, createApiVersion, uploadSpec, deleteApi ]
+    - area: gateway-config
+      operations: [ createGatewayRoute, reloadGateway ]
+    - area: testing
+      operations: [ verifyMcpTool, verifyGatewayRoute ]
+  destructiveOperations:
+    - deleteApi
+  recommendedSequences:
+    - fullOnboarding
+  sensitiveFields:
+    - portalClientSecret
+  disclosure:
+    defaultLevel: summary
+    levels:
+      index:
+        include: [ operationId, summary, tags, capability, visibility, lifecycle ]
+      summary:
+        include: [ input, authentication, safety, idempotency ]
+      invocation:
+        include: [ protocol, endpoint, server, request ]
+      behavior:
+        include: [ result, examples, agent.skill ]
+      full:
+        include: [ fixtures, testSequences ]
